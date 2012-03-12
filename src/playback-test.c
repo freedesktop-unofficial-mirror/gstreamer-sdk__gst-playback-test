@@ -184,6 +184,8 @@ typedef struct
 
   const GstFormatDefinition *seek_format;
   GList *formats;
+
+  gint n_formats;
 } PlaybackApp;
 
 static void clear_streams (PlaybackApp * app);
@@ -1663,6 +1665,7 @@ update_formats (PlaybackApp * app)
   gpointer item;
   gchar *selected;
   gint selected_idx = 0, i;
+  gint n_formats = 0;
 
   selected =
       gtk_combo_box_text_get_active_text (GTK_COMBO_BOX_TEXT
@@ -1680,6 +1683,7 @@ update_formats (PlaybackApp * app)
     switch (gst_iterator_next (it, &item)) {
       case GST_ITERATOR_OK:
         app->formats = g_list_prepend (app->formats, item);
+        n_formats++;
         break;
       case GST_ITERATOR_RESYNC:
         g_list_free (app->formats);
@@ -1699,7 +1703,10 @@ update_formats (PlaybackApp * app)
 
   g_signal_handlers_block_by_func (app->seek_format_combo,
       seek_format_changed_cb, app);
-  gtk_combo_box_text_remove_all (GTK_COMBO_BOX_TEXT (app->seek_format_combo));
+
+  for (i = 0; i < app->n_formats; i++)
+    gtk_combo_box_text_remove (GTK_COMBO_BOX_TEXT (app->seek_format_combo), 0);
+  app->n_formats = n_formats;
 
   for (i = 0, l = app->formats; l; l = l->next, i++) {
     const GstFormatDefinition *def = l->data;
@@ -2067,17 +2074,19 @@ bus_sync_handler (GstBus * bus, GstMessage * message, PlaybackApp * app)
 #endif
 
 static gboolean
-draw_cb (GtkWidget * widget, cairo_t * cr, PlaybackApp * app)
+handle_expose_cb (GtkWidget * widget, GdkEventExpose * event, PlaybackApp * app)
 {
   if (app->state < GST_STATE_PAUSED) {
-    int width, height;
+    GtkAllocation allocation;
+    GdkWindow *window = gtk_widget_get_window (widget);
+    cairo_t *cr;
 
-    width = gtk_widget_get_allocated_width (widget);
-    height = gtk_widget_get_allocated_height (widget);
+    gtk_widget_get_allocation (widget, &allocation);
+    cr = gdk_cairo_create (window);
     cairo_set_source_rgb (cr, 0, 0, 0);
-    cairo_rectangle (cr, 0, 0, width, height);
+    cairo_rectangle (cr, 0, 0, allocation.width, allocation.height);
     cairo_fill (cr);
-    return TRUE;
+    cairo_destroy (cr);
   }
 
   if (app->xoverlay_element)
@@ -2502,7 +2511,8 @@ create_ui (PlaybackApp * app)
   /* initialize gui elements ... */
   app->window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
   app->video_window = gtk_drawing_area_new ();
-  g_signal_connect (app->video_window, "draw", G_CALLBACK (draw_cb), app);
+  g_signal_connect (app->video_window, "expose-event",
+      G_CALLBACK (handle_expose_cb), app);
   g_signal_connect (app->video_window, "realize", G_CALLBACK (realize_cb), app);
   g_signal_connect (app->video_window, "button-press-event",
       G_CALLBACK (button_press_cb), app);
@@ -2545,11 +2555,7 @@ create_ui (PlaybackApp * app)
     GtkWidget *duration_label, *position_label, *seek_button;
 
     seek = gtk_expander_new ("seek options");
-    flagtable = gtk_grid_new ();
-    gtk_grid_set_row_spacing (GTK_GRID (flagtable), 2);
-    gtk_grid_set_row_homogeneous (GTK_GRID (flagtable), FALSE);
-    gtk_grid_set_column_spacing (GTK_GRID (flagtable), 2);
-    gtk_grid_set_column_homogeneous (GTK_GRID (flagtable), TRUE);
+    flagtable = gtk_table_new (5, 4, FALSE);
 
     accurate_checkbox = gtk_check_button_new_with_label ("Accurate Playback");
     key_checkbox = gtk_check_button_new_with_label ("Key-unit Playback");
@@ -2599,53 +2605,61 @@ create_ui (PlaybackApp * app)
     g_signal_connect (G_OBJECT (rate_spinbutton), "value-changed",
         G_CALLBACK (rate_spinbutton_changed_cb), app);
 
-    gtk_grid_attach (GTK_GRID (flagtable), accurate_checkbox, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), flush_checkbox, 1, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), loop_checkbox, 2, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), key_checkbox, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), scrub_checkbox, 1, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), play_scrub_checkbox, 2, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), skip_checkbox, 3, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), rate_label, 4, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (flagtable), rate_spinbutton, 4, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), accurate_checkbox, 0, 1,
+        0, 1);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), flush_checkbox, 1, 2, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), loop_checkbox, 2, 3, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), key_checkbox, 0, 1, 1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), scrub_checkbox, 1, 2, 1,
+        2);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), play_scrub_checkbox, 2, 3,
+        1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), skip_checkbox, 3, 4, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), rate_label, 4, 5, 0, 1);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), rate_spinbutton, 4, 5, 1,
+        2);
 
     advanced_seek = gtk_frame_new ("Advanced Playback");
-    advanced_seek_grid = gtk_grid_new ();
-    gtk_grid_set_row_spacing (GTK_GRID (advanced_seek_grid), 2);
-    gtk_grid_set_row_homogeneous (GTK_GRID (advanced_seek_grid), FALSE);
-    gtk_grid_set_column_spacing (GTK_GRID (advanced_seek_grid), 5);
-    gtk_grid_set_column_homogeneous (GTK_GRID (advanced_seek_grid), FALSE);
+    gtk_frame_set_shadow_type (GTK_FRAME (advanced_seek), GTK_SHADOW_NONE);
+    advanced_seek_grid = gtk_table_new (4, 2, FALSE);
 
     app->seek_format_combo = gtk_combo_box_text_new ();
     g_signal_connect (app->seek_format_combo, "changed",
         G_CALLBACK (seek_format_changed_cb), app);
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), app->seek_format_combo, 0,
-        0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid),
+        app->seek_format_combo, 0, 1, 0, 1);
 
     app->seek_entry = gtk_entry_new ();
     gtk_entry_set_width_chars (GTK_ENTRY (app->seek_entry), 12);
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), app->seek_entry, 0, 1, 1,
-        1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid), app->seek_entry,
+        0, 1, 1, 2);
 
     seek_button = gtk_button_new_with_label ("Playback");
     g_signal_connect (G_OBJECT (seek_button), "clicked",
         G_CALLBACK (advanced_seek_button_cb), app);
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), seek_button, 1, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid), seek_button, 1,
+        2, 0, 1);
 
     position_label = gtk_label_new ("Position:");
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), position_label, 2, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid), position_label,
+        2, 3, 0, 1);
     duration_label = gtk_label_new ("Duration:");
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), duration_label, 2, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid), duration_label,
+        2, 3, 1, 2);
 
     app->seek_position_label = gtk_label_new ("-1");
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), app->seek_position_label, 3,
-        0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid),
+        app->seek_position_label, 3, 4, 0, 1);
     app->seek_duration_label = gtk_label_new ("-1");
-    gtk_grid_attach (GTK_GRID (advanced_seek_grid), app->seek_duration_label, 3,
-        1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid),
+        app->seek_duration_label, 3, 4, 1, 2);
 
     gtk_container_add (GTK_CONTAINER (advanced_seek), advanced_seek_grid);
-    gtk_grid_attach (GTK_GRID (flagtable), advanced_seek, 0, 2, 3, 2);
+    gtk_table_attach_defaults (GTK_TABLE (flagtable), advanced_seek, 0, 3, 2,
+        4);
     gtk_container_add (GTK_CONTAINER (seek), flagtable);
   }
 
@@ -2717,16 +2731,13 @@ create_ui (PlaybackApp * app)
     gint i = 0;
 
     navigation = gtk_expander_new ("navigation commands");
-    grid = gtk_grid_new ();
-    gtk_grid_set_row_spacing (GTK_GRID (grid), 2);
-    gtk_grid_set_row_homogeneous (GTK_GRID (grid), FALSE);
-    gtk_grid_set_column_spacing (GTK_GRID (grid), 2);
-    gtk_grid_set_column_homogeneous (GTK_GRID (grid), TRUE);
+    grid = gtk_table_new (7, 2, FALSE);
 
     navigation_button = gtk_button_new_with_label ("Menu 1");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2735,7 +2746,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Menu 2");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Title Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2744,7 +2756,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Menu 3");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Root Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2753,7 +2766,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Menu 4");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Subpicture Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2762,7 +2776,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Menu 5");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Audio Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2771,7 +2786,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Menu 6");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Angle Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2780,7 +2796,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Menu 7");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i, i + 1, 0,
+        1);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     gtk_widget_set_tooltip_text (navigation_button, "DVD Chapter Menu");
     app->navigation_buttons[i].button = navigation_button;
@@ -2789,7 +2806,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Left");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_LEFT;
@@ -2797,7 +2815,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Right");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_RIGHT;
@@ -2805,7 +2824,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Up");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_UP;
@@ -2813,7 +2833,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Down");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_DOWN;
@@ -2821,7 +2842,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Activate");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_ACTIVATE;
@@ -2829,7 +2851,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Prev. Angle");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_PREV_ANGLE;
@@ -2837,7 +2860,8 @@ create_ui (PlaybackApp * app)
     navigation_button = gtk_button_new_with_label ("Next. Angle");
     g_signal_connect (G_OBJECT (navigation_button), "clicked",
         G_CALLBACK (navigation_cmd_cb), app);
-    gtk_grid_attach (GTK_GRID (grid), navigation_button, i - 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (grid), navigation_button, i - 7,
+        i - 7 + 1, 1, 2);
     gtk_widget_set_sensitive (navigation_button, FALSE);
     app->navigation_buttons[i].button = navigation_button;
     app->navigation_buttons[i++].cmd = GST_NAVIGATION_COMMAND_NEXT_ANGLE;
@@ -2854,6 +2878,7 @@ create_ui (PlaybackApp * app)
 
     /* contrast scale */
     frame = gtk_frame_new ("Contrast");
+    gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_NONE);
     adjustment =
         GTK_ADJUSTMENT (gtk_adjustment_new (N_GRAD / 2.0, 0.00, N_GRAD, 0.1,
             1.0, 1.0));
@@ -2866,6 +2891,7 @@ create_ui (PlaybackApp * app)
 
     /* brightness scale */
     frame = gtk_frame_new ("Brightness");
+    gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_NONE);
     adjustment =
         GTK_ADJUSTMENT (gtk_adjustment_new (N_GRAD / 2.0, 0.00, N_GRAD, 0.1,
             1.0, 1.0));
@@ -2878,6 +2904,7 @@ create_ui (PlaybackApp * app)
 
     /* hue scale */
     frame = gtk_frame_new ("Hue");
+    gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_NONE);
     adjustment =
         GTK_ADJUSTMENT (gtk_adjustment_new (N_GRAD / 2.0, 0.00, N_GRAD, 0.1,
             1.0, 1.0));
@@ -2890,6 +2917,7 @@ create_ui (PlaybackApp * app)
 
     /* saturation scale */
     frame = gtk_frame_new ("Saturation");
+    gtk_frame_set_shadow_type (GTK_FRAME (frame), GTK_SHADOW_NONE);
     adjustment =
         GTK_ADJUSTMENT (gtk_adjustment_new (N_GRAD / 2.0, 0.00, N_GRAD, 0.1,
             1.0, 1.0));
@@ -2943,11 +2971,7 @@ create_ui (PlaybackApp * app)
     g_signal_connect (G_OBJECT (app->text_combo), "changed",
         G_CALLBACK (text_combo_cb), app);
     /* playbin2 panel for flag checkboxes and volume/mute */
-    boxes = gtk_grid_new ();
-    gtk_grid_set_row_spacing (GTK_GRID (boxes), 2);
-    gtk_grid_set_row_homogeneous (GTK_GRID (boxes), FALSE);
-    gtk_grid_set_column_spacing (GTK_GRID (boxes), 2);
-    gtk_grid_set_column_homogeneous (GTK_GRID (boxes), TRUE);
+    boxes = gtk_table_new (8, 2, FALSE);
 
     app->video_checkbox = gtk_check_button_new_with_label ("Video");
     app->audio_checkbox = gtk_check_button_new_with_label ("Audio");
@@ -2967,22 +2991,34 @@ create_ui (PlaybackApp * app)
     volume_label = gtk_label_new ("Volume");
     app->volume_spinbutton = gtk_spin_button_new_with_range (0, 10.0, 0.1);
 
-    gtk_grid_attach (GTK_GRID (boxes), app->video_checkbox, 0, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->audio_checkbox, 1, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->text_checkbox, 2, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->vis_checkbox, 3, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->soft_volume_checkbox, 4, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->native_audio_checkbox, 5, 0, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->native_video_checkbox, 0, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->download_checkbox, 1, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->buffering_checkbox, 2, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->deinterlace_checkbox, 3, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->soft_colorbalance_checkbox, 4, 1, 1,
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->video_checkbox, 0, 1, 0,
         1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->audio_checkbox, 1, 2, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->text_checkbox, 2, 3, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->vis_checkbox, 3, 4, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->soft_volume_checkbox, 4,
+        5, 0, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->native_audio_checkbox, 5,
+        6, 0, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->native_video_checkbox, 0,
+        1, 1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->download_checkbox, 1, 2,
+        1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->buffering_checkbox, 2, 3,
+        1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->deinterlace_checkbox, 3,
+        4, 1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (boxes),
+        app->soft_colorbalance_checkbox, 4, 5, 1, 2);
 
-    gtk_grid_attach (GTK_GRID (boxes), app->mute_checkbox, 7, 0, 2, 1);
-    gtk_grid_attach (GTK_GRID (boxes), volume_label, 6, 1, 1, 1);
-    gtk_grid_attach (GTK_GRID (boxes), app->volume_spinbutton, 7, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->mute_checkbox, 7, 8, 0,
+        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), volume_label, 6, 7, 1, 2);
+    gtk_table_attach_defaults (GTK_TABLE (boxes), app->volume_spinbutton, 7, 8,
+        1, 2);
 
     gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (app->video_checkbox),
         TRUE);
@@ -3052,92 +3088,94 @@ create_ui (PlaybackApp * app)
     init_visualization_features (app);
 
     /* Grid with other properties */
-    boxes3 = gtk_grid_new ();
-    gtk_grid_set_row_spacing (GTK_GRID (boxes3), 2);
-    gtk_grid_set_row_homogeneous (GTK_GRID (boxes3), FALSE);
-    gtk_grid_set_column_spacing (GTK_GRID (boxes3), 2);
-    gtk_grid_set_column_homogeneous (GTK_GRID (boxes3), TRUE);
+    boxes3 = gtk_table_new (5, 6, FALSE);
 
     label = gtk_label_new ("Video sink");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 0, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 0, 1, 0, 1);
     app->video_sink_entry = gtk_entry_new ();
     g_signal_connect (app->video_sink_entry, "activate",
         G_CALLBACK (video_sink_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->video_sink_entry, 0, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->video_sink_entry, 0, 1,
+        1, 2);
 
     label = gtk_label_new ("Audio sink");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 1, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 1, 2, 0, 1);
     app->audio_sink_entry = gtk_entry_new ();
     g_signal_connect (app->audio_sink_entry, "activate",
         G_CALLBACK (audio_sink_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->audio_sink_entry, 1, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->audio_sink_entry, 1, 2,
+        1, 2);
 
     label = gtk_label_new ("Text sink");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 2, 0, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 2, 3, 0, 1);
     app->text_sink_entry = gtk_entry_new ();
     g_signal_connect (app->text_sink_entry, "activate",
         G_CALLBACK (text_sink_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->text_sink_entry, 2, 1, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->text_sink_entry, 2, 3,
+        1, 2);
 
     label = gtk_label_new ("Buffer Size");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 0, 2, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 0, 1, 2, 3);
     app->buffer_size_entry = gtk_entry_new ();
     gtk_entry_set_text (GTK_ENTRY (app->buffer_size_entry), "-1");
     g_signal_connect (app->buffer_size_entry, "activate",
         G_CALLBACK (buffer_size_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->buffer_size_entry, 0, 3, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->buffer_size_entry, 0, 1,
+        3, 4);
 
     label = gtk_label_new ("Buffer Duration");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 1, 2, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 1, 2, 2, 3);
     app->buffer_duration_entry = gtk_entry_new ();
     gtk_entry_set_text (GTK_ENTRY (app->buffer_duration_entry), "-1");
     g_signal_connect (app->buffer_duration_entry, "activate",
         G_CALLBACK (buffer_duration_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->buffer_duration_entry, 1, 3, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->buffer_duration_entry,
+        1, 2, 3, 4);
 
     label = gtk_label_new ("Ringbuffer Max Size");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 2, 2, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 2, 3, 2, 3);
     app->ringbuffer_maxsize_entry = gtk_entry_new ();
     gtk_entry_set_text (GTK_ENTRY (app->ringbuffer_maxsize_entry), "0");
     g_signal_connect (app->ringbuffer_maxsize_entry, "activate",
         G_CALLBACK (ringbuffer_maxsize_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->ringbuffer_maxsize_entry, 2, 3, 1,
-        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3),
+        app->ringbuffer_maxsize_entry, 2, 3, 3, 4);
 
     label = gtk_label_new ("Connection Speed");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 3, 2, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 3, 4, 2, 3);
     app->connection_speed_entry = gtk_entry_new ();
     gtk_entry_set_text (GTK_ENTRY (app->connection_speed_entry), "0");
     g_signal_connect (app->connection_speed_entry, "activate",
         G_CALLBACK (connection_speed_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->connection_speed_entry, 3, 3, 1,
-        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->connection_speed_entry,
+        3, 4, 3, 4);
 
     label = gtk_label_new ("A/V offset");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 4, 2, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 4, 5, 2, 3);
     app->av_offset_entry = gtk_entry_new ();
     g_signal_connect (app->av_offset_entry, "activate",
         G_CALLBACK (av_offset_activate_cb), app);
     gtk_entry_set_text (GTK_ENTRY (app->av_offset_entry), "0");
     g_signal_connect (app->av_offset_entry, "activate",
         G_CALLBACK (av_offset_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->av_offset_entry, 4, 3, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->av_offset_entry, 4, 5,
+        3, 4);
 
     label = gtk_label_new ("Subtitle Encoding");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 0, 4, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 0, 1, 4, 5);
     app->subtitle_encoding_entry = gtk_entry_new ();
     g_signal_connect (app->subtitle_encoding_entry, "activate",
         G_CALLBACK (subtitle_encoding_activate_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->subtitle_encoding_entry, 0, 5, 1,
-        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), app->subtitle_encoding_entry,
+        0, 1, 5, 6);
 
     label = gtk_label_new ("Subtitle Fontdesc");
-    gtk_grid_attach (GTK_GRID (boxes3), label, 1, 4, 1, 1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3), label, 1, 2, 4, 5);
     app->subtitle_fontdesc_button = gtk_font_button_new ();
     g_signal_connect (app->subtitle_fontdesc_button, "font-set",
         G_CALLBACK (subtitle_fontdesc_cb), app);
-    gtk_grid_attach (GTK_GRID (boxes3), app->subtitle_fontdesc_button, 1, 5, 1,
-        1);
+    gtk_table_attach_defaults (GTK_TABLE (boxes3),
+        app->subtitle_fontdesc_button, 1, 2, 5, 6);
 
     pb2vbox = gtk_vbox_new (FALSE, 0);
     gtk_box_pack_start (GTK_BOX (pb2vbox), panel, FALSE, FALSE, 2);

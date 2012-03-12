@@ -1,0 +1,16 @@
+GStreamer playback test application
+===================================
+
+This is a test/sample application for using GStreamer's
+playbin2 with GTK+. The application provides general
+playback features and advanced, technical features.
+
+It can be started with
+gst-playback-test-0.10 0 file:///path/to/file
+or with
+gst-playback-test-0.10 1 "some gst-launch-compatible pipeline description"
+
+
+The upstream location of this is
+gst-plugins-base/tests/examples/playback
+

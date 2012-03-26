@@ -26,6 +26,10 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+/* FIXME 0.11: suppress warnings for deprecated API such as GStaticRecMutex
+ * with newer GTK versions (>= 3.3.0) */
+#define GDK_DISABLE_DEPRECATION_WARNINGS
+#define GLIB_DISABLE_DEPRECATION_WARNINGS
 
 #include <stdlib.h>
 #include <math.h>
@@ -2622,7 +2626,7 @@ create_ui (PlaybackApp * app)
     gtk_table_attach_defaults (GTK_TABLE (flagtable), rate_spinbutton, 4, 5, 1,
         2);
 
-    advanced_seek = gtk_frame_new ("Advanced Playback");
+    advanced_seek = gtk_frame_new ("Advanced Seeking");
     gtk_frame_set_shadow_type (GTK_FRAME (advanced_seek), GTK_SHADOW_NONE);
     advanced_seek_grid = gtk_table_new (4, 2, FALSE);
 
@@ -2637,7 +2641,7 @@ create_ui (PlaybackApp * app)
     gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid), app->seek_entry,
         0, 1, 1, 2);
 
-    seek_button = gtk_button_new_with_label ("Playback");
+    seek_button = gtk_button_new_with_label ("Seek");
     g_signal_connect (G_OBJECT (seek_button), "clicked",
         G_CALLBACK (advanced_seek_button_cb), app);
     gtk_table_attach_defaults (GTK_TABLE (advanced_seek_grid), seek_button, 1,

@@ -27,9 +27,9 @@ AC_HEADER_STDC
 
 AC_CHECK_PROG(HAVE_PKG_CONFIG,pkg-config,yes)
 
-PKG_CHECK_MODULES(GLIB, glib-2.0 gobject-2.0 gthread-2.0)
-PKG_CHECK_MODULES(GST, gstreamer-0.10 gstreamer-plugins-base-0.10 gstreamer-interfaces-0.10)
-PKG_CHECK_MODULES(GTK, gtk+-2.0)
+PKG_CHECK_MODULES([GLIB], [glib-2.0 gobject-2.0 gthread-2.0])
+PKG_CHECK_MODULES([GST], [gstreamer-0.10 gstreamer-plugins-base-0.10 gstreamer-interfaces-0.10])
+PKG_CHECK_MODULES([GTK], [gtk+-2.0])
 
 AC_CONFIG_FILES(
   [Makefile]

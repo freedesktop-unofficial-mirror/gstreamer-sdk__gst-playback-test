@@ -31,6 +31,13 @@ PKG_CHECK_MODULES([GLIB], [glib-2.0 gobject-2.0 gthread-2.0])
 PKG_CHECK_MODULES([GST], [gstreamer-0.10 gstreamer-plugins-base-0.10 gstreamer-interfaces-0.10])
 PKG_CHECK_MODULES([GTK], [gtk+-2.0])
 
+case "$host" in
+  *-*-darwin*)
+    use_quartz=yes
+    ;;
+esac
+AM_CONDITIONAL(USE_QUARTZ, test "x$use_quartz" = "xyes")
+
 AC_CONFIG_FILES(
   [Makefile]
   [src/Makefile]
